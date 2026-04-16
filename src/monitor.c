@@ -304,10 +304,21 @@ static int __init monitor_init(void)
     return 0;
 }
 
+/*
+ * Compatibility shim: del_timer_sync was renamed to timer_delete_sync
+ * in Linux 6.15 (commit 9a5a305f).  Use a version guard so the module
+ * builds on both older (≤6.14) and newer (≥6.15) kernels.
+ */
+#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 15, 0)
+#define compat_timer_delete_sync(t) del_timer_sync(t)
+#else
+#define compat_timer_delete_sync(t) timer_delete_sync(t)
+#endif
+
 /* --- Module Exit --- */
 static void __exit monitor_exit(void)
 {
-    del_timer_sync(&monitor_timer);
+    compat_timer_delete_sync(&monitor_timer);
 
     /* Free all remaining monitored entries */
     {
