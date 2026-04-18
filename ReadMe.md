@@ -29,7 +29,7 @@ The implementation demonstrates essential Operating Systems concepts, including:
 
 ## Build Instructions
 
-    cd boilerplate
+    cd src/
     make
 
 Build outputs:
@@ -74,6 +74,7 @@ This displays:
 
 ## Logging Demonstration (Task 3)
 
+Ensure to create the rootfs directories beforehand
 To generate logs, run a workload inside the container:
 
     cp cpu_hog rootfs-alpha/
