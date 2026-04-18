@@ -1,139 +1,53 @@
-# Multi-Container Runtime with Kernel Memory Monitor
+# Supervised Multi-Container Runtime
 
-## Overview
+## Project Overview
 
-This project implements a lightweight multi-container runtime in C with a long-running supervisor and a Linux kernel module for memory monitoring. The system supports concurrent container execution, structured logging, CLI-based control, and controlled experiments for analyzing Linux scheduling behavior.
+This project implements a lightweight container runtime in C with a long-running supervisor process. The system supports running multiple containers, tracking their metadata, capturing logs, and performing scheduling experiments.
 
-The project integrates user-space process management with kernel-space resource enforcement, providing a hands-on exploration of operating system concepts such as process isolation, inter-process communication, synchronization, and scheduling.
+The implementation demonstrates core Operating Systems concepts such as:
 
-This work was developed as part of the Operating Systems course (UE24CS242B) at PES University. :contentReference[oaicite:0]{index=0}
-
----
-
-## Team Information
-
-- Moorty Perepa — PES2UG24CS248  
-- Kritheesh N V — PES2UG24CS293  
+* process isolation using namespaces
+* inter-process communication (IPC)
+* process lifecycle management
+* synchronization using threads
+* scheduling using nice values
 
 ---
 
-## Project Architecture
+## Environment
 
-The system consists of two main components:
+* Ubuntu 22.04 / 24.04 (Virtual Machine)
+* Not supported on WSL
+* Requires `sudo` for namespace operations
 
-### 1. User-Space Runtime (`engine.c`)
-- Acts as a supervisor daemon
-- Manages multiple containers concurrently
-- Provides CLI interface for container lifecycle operations
-- Implements IPC for control and logging
-- Maintains metadata for all containers
-
-### 2. Kernel-Space Monitor (`monitor.c`)
-- Linux Kernel Module (LKM)
-- Tracks container processes via PID
-- Enforces:
-  - Soft memory limits (warning)
-  - Hard memory limits (SIGKILL)
-- Communicates with user-space using `ioctl`
-
----
-
-## Key Features
-
-- Multi-container execution with namespace isolation
-- Long-running supervisor with CLI interaction
-- Two IPC mechanisms:
-  - UNIX domain sockets (control path)
-  - Pipes with bounded buffer (logging path)
-- Concurrent logging using producer-consumer model
-- Kernel-level memory monitoring with soft and hard limits
-- Scheduler experimentation using controlled workloads
-- Clean resource management and shutdown
-
----
-
-## Repository Structure
-
-```
-.
-├── engine.c              # User-space runtime and supervisor
-├── monitor.c             # Kernel memory monitor module
-├── monitor_ioctl.h       # Shared ioctl interface
-├── cpu_hog.c             # CPU-bound workload
-├── io_pulse.c            # I/O-bound workload
-├── memory_hog.c          # Memory stress workload
-├── environment-check.sh  # Environment validation script
-├── Makefile              # Build system
-├── logs/                 # Generated log files
-└── README.md
-```
-
----
-
-## Environment Requirements
-
-- Ubuntu 22.04 or 24.04 (VM only)
-- Secure Boot disabled
-- Kernel headers installed
-- Root privileges for module loading
-
-Run preflight check:
+Install dependencies:
 
 ```bash
-chmod +x environment-check.sh
-sudo ./environment-check.sh
+sudo apt update
+sudo apt install -y build-essential linux-headers-$(uname -r)
 ```
-
-This script verifies:
-- OS compatibility
-- VM environment
-- Kernel headers
-- Module loading capability :contentReference[oaicite:1]{index=1}
 
 ---
 
 ## Build Instructions
 
 ```bash
+cd boilerplate
 make
 ```
 
 This builds:
-- User-space runtime (`engine`)
-- Kernel module (`monitor.ko`)
-- Workload binaries
+
+* `engine` (user-space runtime)
+* `monitor.ko` (kernel module)
 
 ---
 
-## Setup Instructions
+## Running the Project
 
-### 1. Load Kernel Module
+### 1. Start Supervisor
 
-```bash
-sudo insmod monitor.ko
-ls -l /dev/container_monitor
-```
-
----
-
-### 2. Prepare Root Filesystem
-
-```bash
-mkdir rootfs-base
-wget https://dl-cdn.alpinelinux.org/alpine/v3.20/releases/x86_64/alpine-minirootfs-3.20.3-x86_64.tar.gz
-tar -xzf alpine-minirootfs-3.20.3-x86_64.tar.gz -C rootfs-base
-```
-
-Create per-container copies:
-
-```bash
-cp -a rootfs-base rootfs-alpha
-cp -a rootfs-base rootfs-beta
-```
-
----
-
-### 3. Start Supervisor
+Terminal 1:
 
 ```bash
 sudo ./engine supervisor ./rootfs-base
@@ -141,157 +55,283 @@ sudo ./engine supervisor ./rootfs-base
 
 ---
 
-## CLI Usage
+### 2. Start Containers
 
-The runtime supports the following commands:
+Terminal 2:
 
 ```bash
-engine supervisor <base-rootfs>
-engine start <id> <rootfs> <command> [--soft-mib N] [--hard-mib N] [--nice N]
-engine run   <id> <rootfs> <command> [--soft-mib N] [--hard-mib N] [--nice N]
-engine ps
-engine logs <id>
-engine stop <id>
+sudo ./engine start alpha ./rootfs-alpha /bin/sh
+sudo ./engine start beta  ./rootfs-beta  /bin/sh
 ```
 
-### Command Description
+---
 
-- `start` — Launch container in background
-- `run` — Launch and wait for completion
-- `ps` — List all containers and metadata
-- `logs` — View container logs
-- `stop` — Gracefully terminate container
+### 3. View Container Metadata
+
+```bash
+sudo ./engine ps
+```
+
+This shows:
+
+* container ID
+* PID
+* state
+* memory limits
+* start time
 
 ---
 
-## Workloads
+## Logging Demonstration (Task 3)
 
-### CPU-bound (`cpu_hog`)
-- Continuously performs computation
-- Prints progress every second :contentReference[oaicite:2]{index=2}  
+To generate logs, run a workload inside the container.
 
-### I/O-bound (`io_pulse`)
-- Writes to disk in bursts with delays
-- Simulates I/O-heavy workload :contentReference[oaicite:3]{index=3}  
+```bash
+cp cpu_hog rootfs-alpha/
+```
 
-### Memory-bound (`memory_hog`)
-- Allocates memory in chunks over time
-- Triggers soft/hard limit enforcement :contentReference[oaicite:4]{index=4}  
+Restart supervisor (important to clear stale socket):
 
----
+```bash
+rm -f /tmp/mini_runtime.sock
+sudo ./engine supervisor ./rootfs-base
+```
 
-## Logging System
+Run workload:
 
-- Each container’s stdout/stderr is piped to the supervisor
-- A bounded buffer (size = 16) stores log chunks
-- Producer threads read from pipes
-- Consumer thread writes logs to files
+```bash
+sudo ./engine start alpha ./rootfs-alpha "/cpu_hog 15"
+```
 
-### Properties
+View logs:
 
-- No log loss on abrupt termination
-- Deadlock-free buffer design
-- Clean shutdown with buffer flush
+```bash
+cat logs/alpha.log
+```
 
----
-
-## Kernel Memory Monitoring
-
-- Containers are registered via `ioctl`
-- Kernel module tracks RSS usage periodically
-- Uses linked list with mutex protection
-
-### Policies
-
-- **Soft Limit**: Logs warning once
-- **Hard Limit**: Sends `SIGKILL` and removes entry
-
-Supervisor classifies termination as:
-- `EXITED` — normal completion
-- `STOPPED` — user-requested termination
-- `KILLED` — hard limit violation
+This demonstrates the bounded-buffer logging pipeline. 
 
 ---
 
-## Scheduler Experiments
+## Stopping Containers
 
-The runtime supports controlled experiments using:
-
-- CPU-bound vs CPU-bound (different priorities)
-- CPU-bound vs I/O-bound workloads
-
-Parameters:
-- `nice` values (priority)
-- Concurrent execution
-
-### Observations
-
-- Lower nice value results in higher CPU share
-- I/O-bound processes remain responsive due to scheduler fairness
-- CPU-bound processes compete for time slices
+```bash
+sudo ./engine stop alpha
+```
 
 ---
 
-## OS Concepts Demonstrated
+## Kernel Monitor (Task 4)
 
-### 1. Isolation Mechanisms
-- PID, UTS, and mount namespaces
-- `chroot` for filesystem isolation
-- Shared kernel across containers
+Load kernel module:
 
-### 2. Supervisor and Process Lifecycle
-- Parent-child relationships via `clone()`
-- SIGCHLD handling and reaping
-- Metadata tracking for each container
+```bash
+sudo insmod monitor.ko
+```
 
-### 3. IPC, Threads, and Synchronization
-- UNIX sockets for CLI communication
-- Pipes for logging
-- Mutexes and condition variables for buffer control
+Verify:
 
-### 4. Memory Management and Enforcement
-- RSS tracking via kernel
-- Soft vs hard enforcement policies
-- Kernel-space enforcement for reliability
-
-### 5. Scheduling Behavior
-- Effects of priority (`nice`)
-- Fair scheduling across workloads
-- Trade-offs between responsiveness and throughput
+```bash
+ls -l /dev/container_monitor
+```
 
 ---
 
-## Cleanup Instructions
+### Memory Limit Test
 
-### Stop Supervisor
-Press `Ctrl+C` or send SIGTERM
+```bash
+cp memory_hog rootfs-alpha/
+```
 
-### Unload Kernel Module
+Terminal 1:
+
+```bash
+sudo ./engine supervisor ./rootfs-base
+```
+
+Terminal 3:
+
+```bash
+sudo dmesg -w
+```
+
+Terminal 2:
+
+```bash
+sudo ./engine start alpha ./rootfs-alpha "/memory_hog 5 500" --soft-mib 20 --hard-mib 35
+```
+
+Check metadata:
+
+```bash
+sudo ./engine ps
+```
+
+---
+
+## Scheduling Experiment (Task 5)
+
+Copy workloads:
+
+```bash
+cp cpu_hog rootfs-alpha/
+cp cpu_hog rootfs-beta/
+```
+
+Start supervisor:
+
+```bash
+sudo ./engine supervisor ./rootfs-base
+```
+
+Run two containers with different priorities:
+
+```bash
+sudo ./engine start alpha ./rootfs-alpha "/cpu_hog 30" --nice -5
+sudo ./engine start beta  ./rootfs-beta  "/cpu_hog 30" --nice 5
+```
+
+Monitor CPU usage:
+
+```bash
+top
+```
+
+Compare completion times:
+
+```bash
+tail -3 logs/alpha.log
+tail -3 logs/beta.log
+```
+
+Expected:
+
+* lower nice value → faster execution
+* higher nice value → slower execution
+
+---
+
+## Cleanup Verification (Task 6)
+
+Stop containers:
+
+```bash
+sudo ./engine stop alpha
+sudo ./engine stop beta
+```
+
+Check for zombies:
+
+```bash
+ps aux | grep -E 'Z|defunct'
+```
+
+Check socket cleanup:
+
+```bash
+ls /tmp/mini_runtime.sock
+```
+
+Unload module:
 
 ```bash
 sudo rmmod monitor
 ```
 
-### Remove Temporary Files
+Check kernel logs:
 
 ```bash
-rm -rf rootfs-*
-rm -rf logs/
+dmesg | tail -3
 ```
+
+---
+
+## Key Concepts Demonstrated
+
+* Supervisor-based container management
+* Namespace isolation (PID, UTS, mount)
+* UNIX domain socket IPC (CLI ↔ supervisor)
+* Pipe-based logging (container → supervisor)
+* Bounded buffer with producer-consumer threads
+* Kernel-level memory monitoring (soft + hard limits)
+* Linux scheduling using nice values
 
 ---
 
 ## Notes
 
-- Do not run on WSL
-- Ensure unique rootfs per container
-- Kernel module must be loaded for memory enforcement
-- Logging directory is created automatically
+* `/bin/sh` containers exit immediately (no logs)
+* Workloads like `cpu_hog` are required to generate logs
+* `rm -f /tmp/mini_runtime.sock` fixes stale socket issues
+* `sudo` is required for most commands
+
+---
+## Demo Screenshots
+
+### Task 1: Multi-container supervision
+
+Shows two containers (`alpha` and `beta`) running simultaneously under a single supervisor process.
+![Screenshot1](images/s1.png)
+![Screenshot2](images/s2.png)
+
+---
+
+### Task 2: Metadata tracking (`ps`)
+
+Displays container metadata including ID, PID, state, memory limits, and start time using the `engine ps` command.
+![Screenshot3](images/s3.png)
+
+---
+
+### Task 3: Bounded-buffer logging
+
+Shows output from `cpu_hog` captured in `logs/alpha.log`. Demonstrates the logging pipeline using producer-consumer threads.
+![Screenshot4](images/s4.png)
+![Screenshot5](images/s5.png)
+
+---
+
+### Task 4: CLI and IPC
+
+Shows a CLI command (e.g., `engine start` or `engine logs`) communicating with the supervisor via the control IPC mechanism.
+![Screenshot6](images/s6.png)
+![Screenshot7](images/s7.png)
+
+---
+
+### Task 5: Soft-limit warning
+
+Shows kernel log (`dmesg`) output when a container exceeds its soft memory limit. The process continues execution after the warning.
+![Screenshot8](images/s8.png)
+
+---
+
+### Task 6: Hard-limit enforcement
+
+Shows kernel log (`dmesg`) where a container is killed after exceeding the hard memory limit, along with updated state in `engine ps`.
+![Screenshot9](images/s9.png)
+![Screenshot10](images/s10.png)
+![Screenshot11](images/s11.png)
+
+---
+
+### Task 7: Scheduling experiment
+
+Shows two containers running CPU-bound workloads with different `nice` values, demonstrating difference in execution time or CPU share.
+![Screenshot12](images/s12.png)
+![Screenshot13](images/s13.png)
+
+---
+
+### Task 8: Clean teardown
+
+Shows that all containers are stopped, no zombie processes exist (`ps aux`), and system resources are properly cleaned up.
+![Screenshot14](images/s14.png)
+![Screenshot15](images/s15.png)
+![Screenshot16](images/s16.png)
 
 ---
 
 ## Conclusion
 
-This project demonstrates a practical integration of user-space container management with kernel-level resource monitoring. It provides a minimal yet functional container runtime that exposes core operating system concepts through implementation and experimentation.
-
----
+This project demonstrates how container runtimes operate using Linux primitives. It combines user-space and kernel-space components to manage processes, enforce resource limits, and analyze scheduling behavior in a controlled environment.
